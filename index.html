@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Asistente de Transporte Inteligente</title>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+
+  <!-- CSS Styling -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- TensorFlow.js library -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest" type="text/javascript"></script>
+
+  <!-- TFJ-VIS library -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest" type="text/javascript"></script>
+</head>
+
+<body>
+  <h1>Asistente Inteligente para Transporte Público</h1>
+
+  <section>
+
+    <div class="ui-div">
+      <button class="ui-btn" id="btnMicStart">Iniciar Micrófono</button>
+      <button class="ui-btn" id="btnMicStop">Detener Micrófono</button>
+    </div>
+
+    <div class="ui-div">
+      <p id="predictionResult">Predicción: <span id="predictionClass">N/A</span></p>
+    </div>
+
+    <div class="ui-div">
+      <p id="translatedMessage">Mensaje Traducido: <span id="translatedText">N/A</span></p>
+    </div>
+
+  </section>
+
+  <script src="index.js"></script>
+</body>
+
+</html>
