@@ -4,22 +4,26 @@ const YAMNET_MODEL_URL = "https://tfhub.dev/google/tfjs-model/yamnet/tfjs/1";
 const MODEL_SAMPLE_RATE = 16000;
 const NUM_SECONDS = 5;
 
+const worker = new Worker("worker.js", { type: "module" });
+
 let model;
 let yamnet;
 let audioContext;
 let stream;
 
 let isProcessing = false;
-let isRecording = false; // Flag to track recording state
+let isRecording = false;
+let isSpeaking = false;
+let globalMessage = "";
+
 const alertQueue = [];
 const alertHistory = [];
 const MAX_HISTORY = 5;
 
 const timeDataQueue = [];
 
-let recorder = null; // Global reference to the recorder
+let recorder = null;
 
-// Elementos de la UI
 const btnMicStart = document.querySelector("#btnMicStart");
 const btnMicStop = document.querySelector("#btnMicStop");
 const predictionClass = document.querySelector("#predictionClass");
@@ -28,7 +32,120 @@ const outputMessageEl1 = document.getElementById("outputMessage1");
 const outputMessageEl2 = document.getElementById("outputMessage2");
 const alertHistoryEl = document.getElementById("alertHistory");
 
-// Cargar los modelos de TensorFlow.js
+worker.onmessage = async (e) => {
+  switch (e.data.type) {
+    case "token":
+      if (isRecording) {
+        globalMessage += e.data.token;
+        outputMessageEl.textContent = globalMessage;
+      }
+      break;
+
+    case "done":
+      if (alertQueue.length > 0 && isRecording) {
+        const alert = alertQueue[0];
+
+        try {
+          const [spanishTranslation, portugueseTranslation] = await Promise.all(
+            [
+              translateMessage(globalMessage, "es"),
+              translateMessage(globalMessage, "pt"),
+            ]
+          );
+
+          const alertWithTranslations = {
+            ...alert,
+            messages: {
+              en: globalMessage,
+              es: spanishTranslation,
+              pt: portugueseTranslation,
+            },
+            timestamp: new Date(),
+          };
+
+          alertHistory.unshift(alertWithTranslations);
+          if (alertHistory.length > MAX_HISTORY) {
+            alertHistory.pop();
+          }
+
+          updateAlertHistory();
+
+          if (isRecording) {
+            await speakTextSequentially([
+              { text: globalMessage, lang: "en" },
+              { text: spanishTranslation, lang: "es" },
+              { text: portugueseTranslation, lang: "pt" },
+            ]);
+          }
+        } catch (error) {
+          console.error("Error processing alert:", error);
+        }
+
+        alertQueue.shift();
+      }
+
+      isProcessing = false;
+      predictionClass.textContent = "Waiting for input...";
+      outputMessageEl.textContent = "";
+      globalMessage = "";
+
+      if (isRecording && alertQueue.length > 0) {
+        processNextAlert();
+      }
+      break;
+    case "error":
+      console.error("Error en el Worker:", e.data.message);
+      isProcessing = false;
+      processNextAlert();
+      break;
+
+    default:
+      console.warn("Tipo de mensaje desconocido del Worker:", e.data.type);
+  }
+};
+
+btnMicStart.onclick = async () => {
+  try {
+    // Reset all queues and states first
+    timeDataQueue.length = 0;
+    alertQueue.length = 0;
+    isProcessing = false;
+    isSpeaking = false;
+
+    // Ensure old audio context is properly closed
+    if (audioContext) {
+      await audioContext.close();
+    }
+
+    stream = await getAudioStream();
+    audioContext = new AudioContext({ sampleRate: MODEL_SAMPLE_RATE });
+    const source = audioContext.createMediaStreamSource(stream);
+
+    await audioContext.audioWorklet.addModule("recorder.worklet.js");
+    recorder = new AudioWorkletNode(audioContext, "recorder.worklet");
+    source.connect(recorder);
+    recorder.connect(audioContext.destination);
+
+    recorder.port.onmessage = handleAudioMessage;
+
+    isRecording = true;
+    btnMicStart.disabled = true;
+    btnMicStop.disabled = false;
+
+    predictionClass.textContent = "Listening...";
+    outputMessageEl.textContent = "";
+
+    console.log("Recording started");
+  } catch (error) {
+    console.error("Error starting microphone:", error);
+    stopRecording(); // Cleanup on error
+  }
+};
+
+btnMicStop.onclick = () => {
+  stopRecording();
+};
+
 async function loadYamnetModel() {
   try {
     console.log("Cargando modelo YamNet...");
@@ -55,7 +172,6 @@ async function predict(yamnet, model, audioData) {
     const results = await model.predict(embeddings);
     const meanTensor = results.mean(0);
 
-    // Get prediction probabilities and class index
     const predictionArray = meanTensor.dataSync();
     const predictedIndex = meanTensor.argMax(0).dataSync()[0];
     const confidence = predictionArray[predictedIndex];
@@ -72,19 +188,12 @@ async function predict(yamnet, model, audioData) {
 
 async function getEmbeddingsFromTimeDomainData(yamnet, audioData) {
   try {
-    // Crear un tensor 1-D a partir de audioData
-    const waveformTensor = tf.tensor(audioData); // Forma: [80000]
-    console.log("Forma del tensor 'waveform':", waveformTensor.shape); // Verificación
+    const waveformTensor = tf.tensor(audioData);
 
-    // Crear un objeto con la clave 'waveform'
     const inputs = { waveform: waveformTensor };
 
-    // Realizar la predicción
     const [scores, embeddings] = yamnet.predict(inputs);
-    console.log("Forma de 'scores':", scores.shape);
-    console.log("Forma de 'embeddings':", embeddings.shape);
 
-    // Liberar memoria
     waveformTensor.dispose();
 
     return embeddings;
@@ -111,7 +220,6 @@ async function getAudioStream(audioTrackConstraints) {
   }
 }
 
-// Función para generar el prompt basado en la predicción
 function generatePrompt(prediction, location = "Car 4", urgency = "Moderate") {
   const eventDescriptions = {
     crying_baby: "A baby crying sound was detected",
@@ -144,79 +252,6 @@ Generate only the message, and just give the text. Do not include any additional
   ];
 }
 
-// Inicializar y cargar el Web Worker para Transformers.js
-const worker = new Worker("worker.js", { type: "module" }); // Asegúrate de que worker.js está en la misma carpeta
-
-// Manejar mensajes del Worker
-worker.onmessage = async (e) => {
-  switch (e.data.type) {
-    case "token":
-      // Original English message
-      globalMessage += e.data.token;
-      outputMessageEl.textContent = globalMessage;
-      break;
-    case "ready":
-      console.log("Worker está listo");
-      break;
-    case "done":
-      if (alertQueue.length > 0) {
-        const alert = alertQueue[0];
-
-        // Get translations
-        const [spanishTranslation, portugueseTranslation] = await Promise.all([
-          translateMessage(globalMessage, "es"),
-          translateMessage(globalMessage, "pt"),
-        ]);
-
-        // Create alert with all languages
-        const alertWithTranslations = {
-          ...alert,
-          messages: {
-            en: globalMessage,
-            es: spanishTranslation,
-            pt: portugueseTranslation,
-          },
-          timestamp: new Date(),
-        };
-
-        // Add to history
-        alertHistory.unshift(alertWithTranslations);
-        if (alertHistory.length > MAX_HISTORY) {
-          alertHistory.pop();
-        }
-
-        updateAlertHistory();
-
-        // Speak all languages
-        await speakTextSequentially([
-          { text: globalMessage, lang: "en" },
-          { text: spanishTranslation, lang: "es" },
-          { text: portugueseTranslation, lang: "pt" },
-        ]);
-
-        alertQueue.shift();
-      }
-
-      // Reset states
-      isProcessing = false;
-      predictionClass.textContent = "Waiting for input...";
-      outputMessageEl.textContent = "";
-      globalMessage = "";
-
-      processNextAlert();
-      break;
-    case "error":
-      console.error("Error en el Worker:", e.data.message);
-      isProcessing = false;
-      processNextAlert();
-      break;
-
-    default:
-      console.warn("Tipo de mensaje desconocido del Worker:", e.data.type);
-  }
-};
-
-// Actualizar el historial de alertas en la UI
 function updateAlertHistory() {
   alertHistoryEl.innerHTML = `
     <h3>Recent Alerts</h3>
@@ -249,9 +284,8 @@ function updateAlertHistory() {
   `;
 }
 
-// Función para procesar la siguiente alerta en la cola
 async function processNextAlert() {
-  if (isProcessing || alertQueue.length === 0) return;
+  if (isProcessing || isSpeaking || alertQueue.length === 0) return;
 
   isProcessing = true;
   const alert = alertQueue[0];
@@ -259,12 +293,10 @@ async function processNextAlert() {
   predictionClass.textContent = `Processing: ${alert.prediction}`;
   outputMessageEl.textContent = "";
 
-  // Generate and process the message
   const prompt = generatePrompt(alert.prediction, "Train car 4", "Urgent");
   worker.postMessage({ type: "generate", prompt: prompt });
 }
 
-// Función para verificar si el audio es silencioso
 function isSilent(audioData, threshold = 0.01) {
   const rms = Math.sqrt(
     audioData.reduce((sum, val) => sum + val * val, 0) / audioData.length
@@ -272,43 +304,55 @@ function isSilent(audioData, threshold = 0.01) {
   return rms < threshold;
 }
 
-// Función para detener la grabación
+// Update stopRecording
 function stopRecording() {
   try {
-    if (audioContext && stream) {
-      audioContext.close();
-      stream.getTracks().forEach((track) => track.stop());
-    }
+    isRecording = false;
 
     if (recorder) {
       recorder.disconnect();
-      recorder.port.onmessage = null; // Remove the message handler
+      recorder.port.onmessage = null;
       recorder = null;
     }
 
-    timeDataQueue.splice(0);
-    isRecording = false; // Update recording flag
+    if (audioContext) {
+      audioContext.close().then(() => {
+        audioContext = null;
+      });
+    }
 
-    btnMicStart.disabled = false;
+    if (stream) {
+      stream.getTracks().forEach((track) => {
+        track.stop();
+        stream.removeTrack(track);
+      });
+      stream = null;
+    }
+
+    // Clear all queues
+    timeDataQueue.length = 0;
+
+    if (!isSpeaking && !isProcessing) {
+      alertQueue.length = 0;
+      btnMicStart.disabled = false;
+      outputMessageEl.textContent = "";
+    }
+
     btnMicStop.disabled = true;
-
     predictionClass.textContent = "Stopped";
-    outputMessageEl.textContent = "";
 
-    console.log("Grabación detenida.");
+    console.log("Recording stopped completely");
   } catch (error) {
-    console.error("Error al detener la grabación:", error);
+    console.error("Error stopping recording:", error);
   }
 }
 
-// Función para manejar los mensajes de audio del Worklet
 function handleAudioMessage(e) {
   try {
     const inputBuffer = e.data;
     if (!inputBuffer || inputBuffer.length === 0) return;
 
-    // Check if recording is active
-    if (!isRecording) return;
+    if (!isRecording || isSpeaking) return;
 
     timeDataQueue.push(...inputBuffer);
 
@@ -317,7 +361,6 @@ function handleAudioMessage(e) {
         timeDataQueue.splice(0, MODEL_SAMPLE_RATE * NUM_SECONDS)
       );
 
-      // Optional: Check for silence
       if (isSilent(audioData)) {
         console.log("Audio is silent. Skipping prediction.");
         return;
@@ -325,6 +368,8 @@ function handleAudioMessage(e) {
 
       predict(yamnet, model, audioData)
         .then(({ predictedIndex, confidence }) => {
+          if (isSpeaking) return;
+
           const predictedClass = CLASSES[predictedIndex];
           console.log(
             `Predicted Class: ${predictedClass}, Confidence: ${confidence.toFixed(
@@ -332,20 +377,15 @@ function handleAudioMessage(e) {
             )}`
           );
 
-          // Set confidence threshold
           const CONFIDENCE_THRESHOLD = 0.7;
 
           if (confidence >= CONFIDENCE_THRESHOLD) {
-            // Add to alert queue
             alertQueue.push({
               prediction: predictedClass,
               timestamp: new Date(),
             });
 
-            // Start processing if not already
             processNextAlert();
-          } else {
-            console.log("Confidence below threshold. Alert not added.");
           }
         })
         .catch((error) => {
@@ -357,71 +397,20 @@ function handleAudioMessage(e) {
   }
 }
 
-// Iniciar la grabación y procesamiento de audio
-btnMicStart.onclick = async () => {
-  try {
-    // Iniciar el micrófono y procesar audio
-    stream = await getAudioStream();
-    audioContext = new AudioContext({ sampleRate: MODEL_SAMPLE_RATE });
-    const source = audioContext.createMediaStreamSource(stream);
-
-    await audioContext.audioWorklet.addModule("recorder.worklet.js");
-    recorder = new AudioWorkletNode(audioContext, "recorder.worklet");
-    source.connect(recorder);
-
-    recorder.port.onmessage = handleAudioMessage;
-
-    isRecording = true; // Update recording flag
-
-    btnMicStart.disabled = true;
-    btnMicStop.disabled = false;
-
-    predictionClass.textContent = "Listening...";
-    outputMessageEl.textContent = "";
-
-    console.log("Grabación iniciada.");
-  } catch (error) {
-    console.error("Error al iniciar el micrófono:", error);
-  }
-};
-
-btnMicStop.onclick = () => {
-  stopRecording();
-};
-
-// Función principal para inicializar la aplicación
-async function main() {
-  try {
-    yamnet = await loadYamnetModel();
-    console.log("Modelo YamNet cargado");
-
-    model = await loadCustomAudioClassificationModel();
-    console.log("Modelo de clasificación cargado");
-
-    // Cargar el Worker
-    worker.postMessage({ type: "load" });
-  } catch (error) {
-    console.error("Error en la inicialización del flujo principal:", error);
-  }
-}
-
-// Ejecutar la función principal
-(async function initApp() {
-  try {
-    await main();
-  } catch (error) {
-    console.error("Error en la inicialización de la aplicación:", error);
-  }
-})();
-
-// ----------------------------------------------------------- GENERACIÓN DE TEXTO, TRADUCCIÓN Y SÍNTESIS DE VOZ -----------------------------------------------------------
-
-let globalMessage = "";
-
 function speakTextSequentially(messages) {
-  return messages.reduce((promiseChain, messageObj) => {
-    return promiseChain.then(() => speakText(messageObj.text, messageObj.lang));
-  }, Promise.resolve());
+  isSpeaking = true;
+  btnMicStart.disabled = true;
+
+  return messages
+    .reduce((promiseChain, messageObj) => {
+      return promiseChain.then(() =>
+        speakText(messageObj.text, messageObj.lang)
+      );
+    }, Promise.resolve())
+    .finally(() => {
+      isSpeaking = false;
+      btnMicStart.disabled = false;
+    });
 }
 
 function speakText(message, lang = "es") {
@@ -435,7 +424,7 @@ function speakText(message, lang = "es") {
 
     utterance.onerror = (e) => {
       console.error("Error en SpeechSynthesis:", e);
-      resolve(); // Resolver para continuar con el siguiente mensaje incluso si hay un error
+      resolve();
     };
 
     window.speechSynthesis.speak(utterance);
@@ -443,9 +432,8 @@ function speakText(message, lang = "es") {
 }
 
 async function translateMessage(message, targetLanguage) {
-  // Codificar correctamente el mensaje para evitar problemas con caracteres especiales
   const encodedMessage = encodeURIComponent(message);
-  // Construir la URL correctamente
+
   const url = `https://api.mymemory.translated.net/get?q=${encodedMessage}&langpair=en|${targetLanguage}`;
 
   // Realizar la solicitud GET a la API
@@ -460,3 +448,25 @@ async function translateMessage(message, targetLanguage) {
     return message; // Retorna el mensaje original si ocurre un error
   }
 }
+
+async function main() {
+  try {
+    yamnet = await loadYamnetModel();
+    console.log("Modelo YamNet cargado");
+
+    model = await loadCustomAudioClassificationModel();
+    console.log("Modelo de clasificación cargado");
+
+    worker.postMessage({ type: "load" });
+  } catch (error) {
+    console.error("Error en la inicialización del flujo principal:", error);
+  }
+}
+
+(async function initApp() {
+  try {
+    await main();
+  } catch (error) {
+    console.error("Error en la inicialización de la aplicación:", error);
+  }
+})();

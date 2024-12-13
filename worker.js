@@ -13,7 +13,6 @@ let streamer = null;
 let stopGeneration = false; // Bandera para detener la generación
 
 self.onmessage = async (e) => {
-  console.log("Mensaje recibido en el Worker:", e);
   switch (e.data.type) {
     case "load":
       await load();
@@ -40,7 +39,6 @@ async function load() {
       callback_function,
     });
 
-
     self.postMessage({ type: "ready" });
   } catch (error) {
     console.error("Error al cargar el modelo en el Worker:", error);
@@ -51,12 +49,12 @@ async function load() {
 async function generate(prompt) {
   try {
     await generator(prompt, {
-      max_new_tokens: 64,
-        //temperature: 0.5,
-        top_p: 0.5,
-        do_sample: true,
-        early_stopping: true,
-        streamer
+      max_new_tokens: 500,
+      temperature: 0,
+      top_p: 0,
+      do_sample: false,
+      early_stopping: true,
+      streamer,
     });
 
     // Solo enviar "done" si no se detuvo anticipadamente
@@ -71,12 +69,12 @@ async function generate(prompt) {
 
 function callback_function(token) {
   // Ignorar tokens vacíos y el token de parada personalizado
-  if (token.trim() === '' || token.trim() === '<|im_end|>') {
-    if (token.trim() === '<|im_end|>') {
+  if (token.trim() === "" || token.trim() === "<|im_end|>") {
+    if (token.trim() === "<|im_end|>") {
       stopGeneration = true;
       self.postMessage({ type: "done" });
     }
     return;
   }
-  self.postMessage({ type: 'token', token });
+  self.postMessage({ type: "token", token });
 }
