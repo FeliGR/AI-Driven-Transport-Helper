@@ -1,44 +1,60 @@
-/* style.css */
-
 :root {
-  --primary-color: #2c3e50;
-  --secondary-color: #3498db;
-  --accent-color: #e74c3c;
-  --text-color: #2c3e50;
-  --light-gray: #ecf0f1;
-  --white: #ffffff;
-  --shadow: 0 2px 4px rgba(0,0,0,0.1);
+  --cercanias-blue: #0054A6;
+  --metro-red: #E30613;
+  --background: #F8F9FA;
+  --text: #2C3E50;
+  --gray-light: #E9ECEF;
+  --white: #FFFFFF;
+  --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
 }
 
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: var(--light-gray);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--background);
+  color: var(--text);
+  line-height: 1.5;
   margin: 0;
-  padding: 0;
-  color: var(--text-color);
-  line-height: 1.6;
+  padding: 2rem;
 }
 
 .container {
   max-width: 800px;
   margin: 0 auto;
-  padding: 2rem;
 }
 
 h1 {
-  color: var(--primary-color);
-  text-align: center;
-  font-size: 2.5rem;
-  margin-bottom: 2rem;
+  color: var(--cercanias-blue);
+  font-size: 2rem;
   font-weight: 600;
+  text-align: center;
+  margin-bottom: 3rem;
+  position: relative;
+}
+
+h1::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 3px;
+  background-color: var(--metro-red);
+  border-radius: 2px;
 }
 
 .card {
   background: var(--white);
   border-radius: 12px;
-  padding: 2rem;
-  margin-bottom: 2rem;
-  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .controls {
@@ -49,70 +65,61 @@ h1 {
 }
 
 .ui-btn {
-  background: var(--secondary-color);
+  background: var(--cercanias-blue);
   color: var(--white);
   border: none;
-  padding: 0.8rem 1.5rem;
+  padding: 0.75rem 1.5rem;
   border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: transform 0.2s, background 0.2s;
+  font-size: 0.9rem;
   font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.ui-btn:hover {
-  transform: translateY(-2px);
-  background: #2980b9;
-}
-
-.ui-btn:disabled {
-  background: #bdc3c7;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.ui-btn#btnMicStart {
-  background: var(--secondary-color);
+.ui-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(110%);
 }
 
 .ui-btn#btnMicStop {
-  background: var(--accent-color);
+  background: var(--metro-red);
+}
+
+.ui-btn:disabled {
+  background: var(--gray-light);
+  cursor: not-allowed;
 }
 
 .status-box {
   background: var(--white);
   border-radius: 8px;
-  padding: 1.5rem;
+  padding: 1rem;
   margin-bottom: 1rem;
-  box-shadow: var(--shadow);
 }
 
 .status-label {
+  color: var(--cercanias-blue);
+  font-size: 0.8rem;
   font-weight: 600;
-  color: var(--primary-color);
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
 }
 
 .status-value {
-  font-size: 1.1rem;
-  color: var(--text-color);
-  padding: 0.5rem;
-  background: var(--light-gray);
-  border-radius: 4px;
-  margin-top: 0.5rem;
+  background: var(--background);
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 1rem;
 }
 
 #outputMessage {
-  min-height: 100px;
-  background: var(--light-gray);
+  background: var(--background);
   border-radius: 8px;
   padding: 1rem;
-  margin-top: 1rem;
-  font-size: 1.1rem;
-  line-height: 1.6;
+  min-height: 80px;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .loading {
@@ -121,6 +128,6 @@ h1 {
 
 @keyframes pulse {
   0% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.6; }
   100% { opacity: 1; }
 }
