@@ -106,13 +106,11 @@ worker.onmessage = async (e) => {
 
 btnMicStart.onclick = async () => {
   try {
-    // Reset all queues and states first
     timeDataQueue.length = 0;
     alertQueue.length = 0;
     isProcessing = false;
     isSpeaking = false;
 
-    // Ensure old audio context is properly closed
     if (audioContext) {
       await audioContext.close();
     }
@@ -138,7 +136,7 @@ btnMicStart.onclick = async () => {
     console.log("Recording started");
   } catch (error) {
     console.error("Error starting microphone:", error);
-    stopRecording(); // Cleanup on error
+    stopRecording();
   }
 };
 
@@ -304,7 +302,6 @@ function isSilent(audioData, threshold = 0.01) {
   return rms < threshold;
 }
 
-// Update stopRecording
 function stopRecording() {
   try {
     isRecording = false;
@@ -329,7 +326,6 @@ function stopRecording() {
       stream = null;
     }
 
-    // Clear all queues
     timeDataQueue.length = 0;
 
     if (!isSpeaking && !isProcessing) {
@@ -436,16 +432,14 @@ async function translateMessage(message, targetLanguage) {
 
   const url = `https://api.mymemory.translated.net/get?q=${encodedMessage}&langpair=en|${targetLanguage}`;
 
-  // Realizar la solicitud GET a la API
   const response = await fetch(url);
   const data = await response.json();
 
-  // Verificar si la traducción se obtuvo correctamente
   if (data.responseData && data.responseData.translatedText) {
     return data.responseData.translatedText;
   } else {
     console.error("Error en la traducción:", data);
-    return message; // Retorna el mensaje original si ocurre un error
+    return message;
   }
 }
 

@@ -1,16 +1,16 @@
 :root {
-  --cercanias-blue: #0054A6;
-  --metro-red: #E30613;
-  --background: #F8F9FA;
-  --text: #2C3E50;
-  --gray-light: #E9ECEF;
-  --white: #FFFFFF;
-  --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+  --cercanias-blue: #0054a6;
+  --metro-red: #e30613;
+  --background: #f8f9fa;
+  --text: #2c3e50;
+  --gray-light: #e9ecef;
+  --white: #ffffff;
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background-color: var(--background);
   color: var(--text);
   line-height: 1.5;
@@ -33,7 +33,7 @@ h1 {
 }
 
 h1::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -10px;
   left: 50%;
@@ -127,9 +127,15 @@ h1::after {
 }
 
 @keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.6; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* Styles for Alert History */

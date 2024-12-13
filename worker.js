@@ -1,5 +1,3 @@
-// worker.js
-
 import {
   TextStreamer,
   pipeline,
@@ -10,7 +8,7 @@ const MODEL_NAME = "onnx-community/Qwen2.5-0.5B-Instruct";
 
 let generator = null;
 let streamer = null;
-let stopGeneration = false; // Bandera para detener la generación
+let stopGeneration = false;
 
 self.onmessage = async (e) => {
   switch (e.data.type) {
@@ -18,7 +16,7 @@ self.onmessage = async (e) => {
       await load();
       break;
     case "generate":
-      stopGeneration = false; // Reiniciar la bandera antes de generar
+      stopGeneration = false;
       await generate(e.data.prompt);
       break;
     default:
@@ -35,7 +33,7 @@ async function load() {
     });
 
     streamer = new TextStreamer(generator.tokenizer, {
-      skip_prompt: true, // Evita repetir el prompt
+      skip_prompt: true,
       callback_function,
     });
 
@@ -57,7 +55,6 @@ async function generate(prompt) {
       streamer,
     });
 
-    // Solo enviar "done" si no se detuvo anticipadamente
     if (!stopGeneration) {
       self.postMessage({ type: "done" });
     }
@@ -68,7 +65,6 @@ async function generate(prompt) {
 }
 
 function callback_function(token) {
-  // Ignorar tokens vacíos y el token de parada personalizado
   if (token.trim() === "" || token.trim() === "<|im_end|>") {
     if (token.trim() === "<|im_end|>") {
       stopGeneration = true;
