@@ -1,4 +1,4 @@
-const CLASSES = ["crying_baby", "clock_alarm", "toilet_flush", "water_drops"];
+const CLASSES = ["crying_baby", "clock_alarm", "water_drops", "toilet_flush"];
 
 const YAMNET_MODEL_URL = "https://tfhub.dev/google/tfjs-model/yamnet/tfjs/1";
 const MODEL_SAMPLE_RATE = 16000;
@@ -18,6 +18,15 @@ const MAX_HISTORY = 5;
 const timeDataQueue = [];
 
 let recorder = null; // Global reference to the recorder
+
+// Elementos de la UI
+const btnMicStart = document.querySelector("#btnMicStart");
+const btnMicStop = document.querySelector("#btnMicStop");
+const predictionClass = document.querySelector("#predictionClass");
+const outputMessageEl = document.getElementById("outputMessage");
+const outputMessageEl1 = document.getElementById("outputMessage1");
+const outputMessageEl2 = document.getElementById("outputMessage2");
+const alertHistoryEl = document.getElementById("alertHistory");
 
 // Cargar los modelos de TensorFlow.js
 async function loadYamnetModel() {
@@ -109,6 +118,7 @@ function generatePrompt(prediction, location = "Car 4", urgency = "Moderate") {
     clock_alarm: "An alarm sound was detected",
     toilet_flush: "A toilet flush sound was detected",
     water_drops: "A water dripping sound was detected",
+    Equipaje: "A luggage moving sound was detected",
   };
 
   const description =
@@ -137,45 +147,64 @@ Generate only the message, and just give the text. Do not include any additional
 // Inicializar y cargar el Web Worker para Transformers.js
 const worker = new Worker("worker.js", { type: "module" }); // Asegúrate de que worker.js está en la misma carpeta
 
-// Elementos de la UI
-const btnMicStart = document.querySelector("#btnMicStart");
-const btnMicStop = document.querySelector("#btnMicStop");
-const predictionClass = document.querySelector("#predictionClass");
-const outputMessageEl = document.getElementById("outputMessage");
-const alertHistoryEl = document.getElementById("alertHistory");
-
 // Manejar mensajes del Worker
 worker.onmessage = async (e) => {
   switch (e.data.type) {
     case "token":
-      outputMessageEl.textContent += e.data.token;
+      // Original English message
+      globalMessage += e.data.token;
+      outputMessageEl.textContent = globalMessage;
       break;
-
     case "ready":
       console.log("Worker está listo");
       break;
-
     case "done":
-      console.log("Generación de texto completada");
-      // Agregar el alert actual al historial
       if (alertQueue.length > 0) {
-        const alert = alertQueue.shift();
-        alert.message = outputMessageEl.textContent;
-        alertHistory.unshift(alert);
+        const alert = alertQueue[0];
+
+        // Get translations
+        const [spanishTranslation, portugueseTranslation] = await Promise.all([
+          translateMessage(globalMessage, "es"),
+          translateMessage(globalMessage, "pt"),
+        ]);
+
+        // Create alert with all languages
+        const alertWithTranslations = {
+          ...alert,
+          messages: {
+            en: globalMessage,
+            es: spanishTranslation,
+            pt: portugueseTranslation,
+          },
+          timestamp: new Date(),
+        };
+
+        // Add to history
+        alertHistory.unshift(alertWithTranslations);
         if (alertHistory.length > MAX_HISTORY) {
           alertHistory.pop();
         }
+
         updateAlertHistory();
+
+        // Speak all languages
+        await speakTextSequentially([
+          { text: globalMessage, lang: "en" },
+          { text: spanishTranslation, lang: "es" },
+          { text: portugueseTranslation, lang: "pt" },
+        ]);
+
+        alertQueue.shift();
       }
-      // Resetear estado
+
+      // Reset states
       isProcessing = false;
       predictionClass.textContent = "Waiting for input...";
       outputMessageEl.textContent = "";
+      globalMessage = "";
 
-      // Procesar siguiente alerta si hay
       processNextAlert();
       break;
-
     case "error":
       console.error("Error en el Worker:", e.data.message);
       isProcessing = false;
@@ -187,6 +216,7 @@ worker.onmessage = async (e) => {
   }
 };
 
+// Actualizar el historial de alertas en la UI
 function updateAlertHistory() {
   alertHistoryEl.innerHTML = `
     <h3>Recent Alerts</h3>
@@ -194,9 +224,24 @@ function updateAlertHistory() {
       .map(
         (alert) => `
       <div class="alert-item">
-        <div class="alert-time">${alert.timestamp.toLocaleTimeString()}</div>
-        <div class="alert-type">${alert.prediction}</div>
-        <div class="alert-message">${alert.message}</div>
+        <div class="alert-header">
+          <span class="alert-time">${alert.timestamp.toLocaleTimeString()}</span>
+          <span class="alert-type">${alert.prediction}</span>
+        </div>
+        <div class="alert-messages">
+          <div class="message">
+            <div class="message-label">🇬🇧 English</div>
+            <div class="message-text">${alert.messages.en}</div>
+          </div>
+          <div class="message">
+            <div class="message-label">🇪🇸 Español</div>
+            <div class="message-text">${alert.messages.es}</div>
+          </div>
+          <div class="message">
+            <div class="message-label">🇵🇹 Português</div>
+            <div class="message-text">${alert.messages.pt}</div>
+          </div>
+        </div>
       </div>
     `
       )
@@ -204,7 +249,8 @@ function updateAlertHistory() {
   `;
 }
 
-function processNextAlert() {
+// Función para procesar la siguiente alerta en la cola
+async function processNextAlert() {
   if (isProcessing || alertQueue.length === 0) return;
 
   isProcessing = true;
@@ -213,9 +259,8 @@ function processNextAlert() {
   predictionClass.textContent = `Processing: ${alert.prediction}`;
   outputMessageEl.textContent = "";
 
-  // Generar prompt y enviar al Worker para generar el mensaje
+  // Generate and process the message
   const prompt = generatePrompt(alert.prediction, "Train car 4", "Urgent");
-
   worker.postMessage({ type: "generate", prompt: prompt });
 }
 
@@ -256,6 +301,7 @@ function stopRecording() {
   }
 }
 
+// Función para manejar los mensajes de audio del Worklet
 function handleAudioMessage(e) {
   try {
     const inputBuffer = e.data;
@@ -311,6 +357,7 @@ function handleAudioMessage(e) {
   }
 }
 
+// Iniciar la grabación y procesamiento de audio
 btnMicStart.onclick = async () => {
   try {
     // Iniciar el micrófono y procesar audio
@@ -366,3 +413,50 @@ async function main() {
     console.error("Error en la inicialización de la aplicación:", error);
   }
 })();
+
+// ----------------------------------------------------------- GENERACIÓN DE TEXTO, TRADUCCIÓN Y SÍNTESIS DE VOZ -----------------------------------------------------------
+
+let globalMessage = "";
+
+function speakTextSequentially(messages) {
+  return messages.reduce((promiseChain, messageObj) => {
+    return promiseChain.then(() => speakText(messageObj.text, messageObj.lang));
+  }, Promise.resolve());
+}
+
+function speakText(message, lang = "es") {
+  return new Promise((resolve, reject) => {
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = lang;
+
+    utterance.onend = () => {
+      resolve();
+    };
+
+    utterance.onerror = (e) => {
+      console.error("Error en SpeechSynthesis:", e);
+      resolve(); // Resolver para continuar con el siguiente mensaje incluso si hay un error
+    };
+
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
+async function translateMessage(message, targetLanguage) {
+  // Codificar correctamente el mensaje para evitar problemas con caracteres especiales
+  const encodedMessage = encodeURIComponent(message);
+  // Construir la URL correctamente
+  const url = `https://api.mymemory.translated.net/get?q=${encodedMessage}&langpair=en|${targetLanguage}`;
+
+  // Realizar la solicitud GET a la API
+  const response = await fetch(url);
+  const data = await response.json();
+
+  // Verificar si la traducción se obtuvo correctamente
+  if (data.responseData && data.responseData.translatedText) {
+    return data.responseData.translatedText;
+  } else {
+    console.error("Error en la traducción:", data);
+    return message; // Retorna el mensaje original si ocurre un error
+  }
+}

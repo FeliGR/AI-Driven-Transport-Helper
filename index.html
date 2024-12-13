@@ -1,35 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <title>Intelligent Transport Assistant</title>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
     <link rel="stylesheet" href="style.css" />
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <h1>Intelligent Transport Assistant</h1>
-        
-        <div class="card">
-            <div class="controls">
-                <button class="ui-btn" id="btnMicStart">Start Recording</button>
-                <button class="ui-btn" id="btnMicStop" disabled>Stop Recording</button>
-            </div>
+      <h1>Intelligent Transport Assistant</h1>
 
-            <div class="status-box">
-                <div class="status-label">Sound Classification</div>
-                <div class="status-value" id="predictionClass">Waiting for input...</div>
-            </div>
-
-            <div id="outputMessage"></div>
-
-            <div id="alertHistory"></div>
+      <div class="card">
+        <div class="controls">
+          <button class="ui-btn" id="btnMicStart">Start Recording</button>
+          <button class="ui-btn" id="btnMicStop" disabled>
+            Stop Recording
+          </button>
         </div>
+
+        <div class="status-box">
+          <div class="status-label">Sound Classification</div>
+          <div class="status-value" id="predictionClass">
+            Waiting for input...
+          </div>
+        </div>
+
+        <div id="outputMessage"></div>
+        <div id="outputMessage1"></div>
+        <div id="outputMessage2"></div>
+
+        <div id="alertHistory"></div>
+      </div>
     </div>
 
     <script type="module" src="index.js"></script>
-</body>
+  </body>
 </html>
