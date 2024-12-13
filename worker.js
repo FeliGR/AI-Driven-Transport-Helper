@@ -54,7 +54,7 @@ async function generate(prompt) {
       max_new_tokens: 64,
         //temperature: 0.5,
         top_p: 0.5,
-        do_sample: false,
+        do_sample: true,
         early_stopping: true,
         streamer
     });

@@ -10,11 +10,14 @@ let audioContext;
 let stream;
 
 let isProcessing = false;
+let isRecording = false; // Flag to track recording state
 const alertQueue = [];
 const alertHistory = [];
 const MAX_HISTORY = 5;
 
 const timeDataQueue = [];
+
+let recorder = null; // Global reference to the recorder
 
 // Cargar los modelos de TensorFlow.js
 async function loadYamnetModel() {
@@ -47,11 +50,6 @@ async function predict(yamnet, model, audioData) {
     const predictionArray = meanTensor.dataSync();
     const predictedIndex = meanTensor.argMax(0).dataSync()[0];
     const confidence = predictionArray[predictedIndex];
-
-    console.log(predictionArray)
-    console.log(predictedIndex)
-    console.log(confidence)
-
     embeddings.dispose();
     results.dispose();
     meanTensor.dispose();
@@ -195,12 +193,12 @@ function updateAlertHistory() {
     ${alertHistory
       .map(
         (alert) => `
-    <div class="alert-item">
-      <div class="alert-time">${alert.timestamp.toLocaleTimeString()}</div>
-      <div class="alert-type">${alert.prediction}</div>
-      <div class="alert-message">${alert.message}</div>
-    </div>
-  `
+      <div class="alert-item">
+        <div class="alert-time">${alert.timestamp.toLocaleTimeString()}</div>
+        <div class="alert-type">${alert.prediction}</div>
+        <div class="alert-message">${alert.message}</div>
+      </div>
+    `
       )
       .join("")}
   `;
@@ -221,6 +219,14 @@ function processNextAlert() {
   worker.postMessage({ type: "generate", prompt: prompt });
 }
 
+// Función para verificar si el audio es silencioso
+function isSilent(audioData, threshold = 0.01) {
+  const rms = Math.sqrt(
+    audioData.reduce((sum, val) => sum + val * val, 0) / audioData.length
+  );
+  return rms < threshold;
+}
+
 // Función para detener la grabación
 function stopRecording() {
   try {
@@ -228,7 +234,15 @@ function stopRecording() {
       audioContext.close();
       stream.getTracks().forEach((track) => track.stop());
     }
+
+    if (recorder) {
+      recorder.disconnect();
+      recorder.port.onmessage = null; // Remove the message handler
+      recorder = null;
+    }
+
     timeDataQueue.splice(0);
+    isRecording = false; // Update recording flag
 
     btnMicStart.disabled = false;
     btnMicStop.disabled = true;
@@ -242,33 +256,29 @@ function stopRecording() {
   }
 }
 
-btnMicStart.onclick = async () => {
+function handleAudioMessage(e) {
   try {
-    // Iniciar el micrófono y procesar audio
-    stream = await getAudioStream();
-    audioContext = new AudioContext({ sampleRate: MODEL_SAMPLE_RATE });
-    const source = audioContext.createMediaStreamSource(stream);
+    const inputBuffer = e.data;
+    if (!inputBuffer || inputBuffer.length === 0) return;
 
-    await audioContext.audioWorklet.addModule("recorder.worklet.js");
-    const recorder = new AudioWorkletNode(audioContext, "recorder.worklet");
-    source.connect(recorder);
+    // Check if recording is active
+    if (!isRecording) return;
 
-    recorder.port.onmessage = async (e) => {
-      try {
-        const inputBuffer = e.data;
-        if (!inputBuffer || inputBuffer.length === 0) return;
+    timeDataQueue.push(...inputBuffer);
 
-        timeDataQueue.push(...inputBuffer);
+    if (timeDataQueue.length >= MODEL_SAMPLE_RATE * NUM_SECONDS) {
+      const audioData = new Float32Array(
+        timeDataQueue.splice(0, MODEL_SAMPLE_RATE * NUM_SECONDS)
+      );
 
-        if (timeDataQueue.length >= MODEL_SAMPLE_RATE * NUM_SECONDS) {
-          const audioData = new Float32Array(
-            timeDataQueue.splice(0, MODEL_SAMPLE_RATE * NUM_SECONDS)
-          );
-          const { predictedIndex, confidence } = await predict(
-            yamnet,
-            model,
-            audioData
-          );
+      // Optional: Check for silence
+      if (isSilent(audioData)) {
+        console.log("Audio is silent. Skipping prediction.");
+        return;
+      }
+
+      predict(yamnet, model, audioData)
+        .then(({ predictedIndex, confidence }) => {
           const predictedClass = CLASSES[predictedIndex];
           console.log(
             `Predicted Class: ${predictedClass}, Confidence: ${confidence.toFixed(
@@ -291,14 +301,38 @@ btnMicStart.onclick = async () => {
           } else {
             console.log("Confidence below threshold. Alert not added.");
           }
-        }
-      } catch (error) {
-        console.error("Error processing audio:", error);
-      }
-    };
+        })
+        .catch((error) => {
+          console.error("Error during prediction:", error);
+        });
+    }
+  } catch (error) {
+    console.error("Error processing audio:", error);
+  }
+}
+
+btnMicStart.onclick = async () => {
+  try {
+    // Iniciar el micrófono y procesar audio
+    stream = await getAudioStream();
+    audioContext = new AudioContext({ sampleRate: MODEL_SAMPLE_RATE });
+    const source = audioContext.createMediaStreamSource(stream);
+
+    await audioContext.audioWorklet.addModule("recorder.worklet.js");
+    recorder = new AudioWorkletNode(audioContext, "recorder.worklet");
+    source.connect(recorder);
+
+    recorder.port.onmessage = handleAudioMessage;
+
+    isRecording = true; // Update recording flag
 
     btnMicStart.disabled = true;
     btnMicStop.disabled = false;
+
+    predictionClass.textContent = "Listening...";
+    outputMessageEl.textContent = "";
+
+    console.log("Grabación iniciada.");
   } catch (error) {
     console.error("Error al iniciar el micrófono:", error);
   }
