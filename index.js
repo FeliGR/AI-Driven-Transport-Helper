@@ -8,7 +8,13 @@ let model;
 let yamnet;
 let audioContext;
 let stream;
-let timeoutId = null;
+
+let isProcessing = false;
+const alertQueue = [];
+const alertHistory = [];
+const MAX_HISTORY = 5;
+
+const timeDataQueue = [];
 
 // Cargar los modelos de TensorFlow.js
 async function loadYamnetModel() {
@@ -36,18 +42,24 @@ async function predict(yamnet, model, audioData) {
     const embeddings = await getEmbeddingsFromTimeDomainData(yamnet, audioData);
     const results = await model.predict(embeddings);
     const meanTensor = results.mean(0);
-    const argMaxTensor = meanTensor.argMax(0);
 
-    const predictedIndex = argMaxTensor.dataSync()[0];
+    // Get prediction probabilities and class index
+    const predictionArray = meanTensor.dataSync();
+    const predictedIndex = meanTensor.argMax(0).dataSync()[0];
+    const confidence = predictionArray[predictedIndex];
+
+    console.log(predictionArray)
+    console.log(predictedIndex)
+    console.log(confidence)
 
     embeddings.dispose();
     results.dispose();
     meanTensor.dispose();
 
-    return predictedIndex;
+    return { predictedIndex, confidence };
   } catch (error) {
-    console.error("Error durante la predicción:", error);
-    throw new Error("No se pudo realizar la predicción.");
+    console.error("Error during prediction:", error);
+    throw new Error("Prediction failed.");
   }
 }
 
@@ -132,35 +144,82 @@ const btnMicStart = document.querySelector("#btnMicStart");
 const btnMicStop = document.querySelector("#btnMicStop");
 const predictionClass = document.querySelector("#predictionClass");
 const outputMessageEl = document.getElementById("outputMessage");
-
-const timeDataQueue = [];
+const alertHistoryEl = document.getElementById("alertHistory");
 
 // Manejar mensajes del Worker
 worker.onmessage = async (e) => {
   switch (e.data.type) {
     case "token":
-      console.log("Token recibido del Worker:", e.data.token);
       outputMessageEl.textContent += e.data.token;
       break;
 
     case "ready":
       console.log("Worker está listo");
-      // Puedes realizar acciones adicionales si es necesario
       break;
 
     case "done":
       console.log("Generación de texto completada");
-      // Actualizar el mensaje generado
+      // Agregar el alert actual al historial
+      if (alertQueue.length > 0) {
+        const alert = alertQueue.shift();
+        alert.message = outputMessageEl.textContent;
+        alertHistory.unshift(alert);
+        if (alertHistory.length > MAX_HISTORY) {
+          alertHistory.pop();
+        }
+        updateAlertHistory();
+      }
+      // Resetear estado
+      isProcessing = false;
+      predictionClass.textContent = "Waiting for input...";
+      outputMessageEl.textContent = "";
+
+      // Procesar siguiente alerta si hay
+      processNextAlert();
       break;
 
     case "error":
       console.error("Error en el Worker:", e.data.message);
+      isProcessing = false;
+      processNextAlert();
       break;
 
     default:
       console.warn("Tipo de mensaje desconocido del Worker:", e.data.type);
   }
 };
+
+function updateAlertHistory() {
+  alertHistoryEl.innerHTML = `
+    <h3>Recent Alerts</h3>
+    ${alertHistory
+      .map(
+        (alert) => `
+    <div class="alert-item">
+      <div class="alert-time">${alert.timestamp.toLocaleTimeString()}</div>
+      <div class="alert-type">${alert.prediction}</div>
+      <div class="alert-message">${alert.message}</div>
+    </div>
+  `
+      )
+      .join("")}
+  `;
+}
+
+function processNextAlert() {
+  if (isProcessing || alertQueue.length === 0) return;
+
+  isProcessing = true;
+  const alert = alertQueue[0];
+
+  predictionClass.textContent = `Processing: ${alert.prediction}`;
+  outputMessageEl.textContent = "";
+
+  // Generar prompt y enviar al Worker para generar el mensaje
+  const prompt = generatePrompt(alert.prediction, "Train car 4", "Urgent");
+
+  worker.postMessage({ type: "generate", prompt: prompt });
+}
 
 // Función para detener la grabación
 function stopRecording() {
@@ -174,16 +233,10 @@ function stopRecording() {
     btnMicStart.disabled = false;
     btnMicStop.disabled = true;
 
-    // predictionClass.textContent = "N/A";
+    predictionClass.textContent = "Stopped";
     outputMessageEl.textContent = "";
 
-    // Clear the timeout
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-
-    console.log("Grabación detenida automáticamente después de 5 segundos.");
+    console.log("Grabación detenida.");
   } catch (error) {
     console.error("Error al detener la grabación:", error);
   }
@@ -211,32 +264,41 @@ btnMicStart.onclick = async () => {
           const audioData = new Float32Array(
             timeDataQueue.splice(0, MODEL_SAMPLE_RATE * NUM_SECONDS)
           );
-          const classIndex = await predict(yamnet, model, audioData);
-          const predictedClass = CLASSES[classIndex];
-          predictionClass.textContent = predictedClass;
-
-          // Generar prompt y enviar al Worker para generar el mensaje
-          const prompt = generatePrompt(
-            predictedClass,
-            "Train car 4",
-            "Urgent"
+          const { predictedIndex, confidence } = await predict(
+            yamnet,
+            model,
+            audioData
           );
-          outputMessageEl.textContent = ""; // Limpiar el mensaje previo
-          worker.postMessage({ type: "generate", prompt: prompt });
+          const predictedClass = CLASSES[predictedIndex];
+          console.log(
+            `Predicted Class: ${predictedClass}, Confidence: ${confidence.toFixed(
+              2
+            )}`
+          );
 
-          // Detener la grabación después de procesar el primer bloque de 5 segundos
-          stopRecording();
+          // Set confidence threshold
+          const CONFIDENCE_THRESHOLD = 0.7;
+
+          if (confidence >= CONFIDENCE_THRESHOLD) {
+            // Add to alert queue
+            alertQueue.push({
+              prediction: predictedClass,
+              timestamp: new Date(),
+            });
+
+            // Start processing if not already
+            processNextAlert();
+          } else {
+            console.log("Confidence below threshold. Alert not added.");
+          }
         }
       } catch (error) {
-        console.error("Error al procesar el audio:", error);
+        console.error("Error processing audio:", error);
       }
     };
 
     btnMicStart.disabled = true;
     btnMicStop.disabled = false;
-
-    // Opcional: configurar un timeout para detener la grabación automáticamente después de 5 segundos
-    // timeoutId = setTimeout(stopRecording, MODEL_SAMPLE_RATE * NUM_SECONDS / 16000 * 1000);
   } catch (error) {
     console.error("Error al iniciar el micrófono:", error);
   }
