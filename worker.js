@@ -1,0 +1,82 @@
+// worker.js
+
+import {
+  TextStreamer,
+  pipeline,
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.1.2";
+
+const TASK_NAME = "text-generation";
+const MODEL_NAME = "onnx-community/Qwen2.5-0.5B-Instruct";
+
+let generator = null;
+let streamer = null;
+let stopGeneration = false; // Bandera para detener la generación
+
+self.onmessage = async (e) => {
+  console.log("Mensaje recibido en el Worker:", e);
+  switch (e.data.type) {
+    case "load":
+      await load();
+      break;
+    case "generate":
+      stopGeneration = false; // Reiniciar la bandera antes de generar
+      await generate(e.data.prompt);
+      break;
+    default:
+      console.warn("Tipo de mensaje desconocido:", e.data.type);
+  }
+};
+
+async function load() {
+  try {
+    console.log("Cargando modelo de generación de texto...");
+    generator = await pipeline(TASK_NAME, MODEL_NAME, {
+      dtype: "fp16",
+      device: "wasm",
+    });
+
+    streamer = new TextStreamer(generator.tokenizer, {
+      skip_prompt: true, // Evita repetir el prompt
+      callback_function,
+    });
+
+
+    self.postMessage({ type: "ready" });
+  } catch (error) {
+    console.error("Error al cargar el modelo en el Worker:", error);
+    self.postMessage({ type: "error", message: error.message });
+  }
+}
+
+async function generate(prompt) {
+  try {
+    await generator(prompt, {
+      max_new_tokens: 64,
+        //temperature: 0.5,
+        top_p: 0.5,
+        do_sample: false,
+        early_stopping: true,
+        streamer
+    });
+
+    // Solo enviar "done" si no se detuvo anticipadamente
+    if (!stopGeneration) {
+      self.postMessage({ type: "done" });
+    }
+  } catch (error) {
+    console.error("Error al generar texto en el Worker:", error);
+    self.postMessage({ type: "error", message: error.message });
+  }
+}
+
+function callback_function(token) {
+  // Ignorar tokens vacíos y el token de parada personalizado
+  if (token.trim() === '' || token.trim() === '<|im_end|>') {
+    if (token.trim() === '<|im_end|>') {
+      stopGeneration = true;
+      self.postMessage({ type: "done" });
+    }
+    return;
+  }
+  self.postMessage({ type: 'token', token });
+}

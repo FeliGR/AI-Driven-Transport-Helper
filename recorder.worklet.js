@@ -1,51 +1,22 @@
-class RecorderProcessor extends AudioWorkletProcessor {
-  bufferSize = 4096;
-  _bytesWritten = 0;
+// recorder.worklet.js
 
-  _buffer = new Float32Array(this.bufferSize);
-
+class RecorderWorklet extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.initBuffer();
+    this.buffer = [];
   }
 
-  initBuffer() {
-    this._bytesWritten = 0;
-  }
-
-  isBufferEmpty() {
-    return this._bytesWritten === 0;
-  }
-
-  isBufferFull() {
-    return this._bytesWritten === this.bufferSize;
-  }
-
-  process(inputs) {
-    this.append(inputs[0][0]);
-    return true;
-  }
-
-  append(channelData) {
-    if (this.isBufferFull()) {
-      this.flush();
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (input.length > 0) {
+      const channelData = input[0];
+      // Copiar los datos del canal para evitar referencias compartidas
+      const buffer = new Float32Array(channelData);
+      // Enviar los datos al hilo principal
+      this.port.postMessage(buffer);
     }
-
-    if (!channelData) return;
-
-    for (let i = 0; i < channelData.length; i++) {
-      this._buffer[this._bytesWritten++] = channelData[i];
-    }
-  }
-
-  flush() {
-    this.port.postMessage(
-      this._bytesWritten < this.bufferSize
-        ? this._buffer.slice(0, this._bytesWritten)
-        : this._buffer
-    );
-    this.initBuffer();
+    return true; // Mantener el worklet activo
   }
 }
 
-registerProcessor("recorder.worklet", RecorderProcessor);
+registerProcessor('recorder.worklet', RecorderWorklet);
