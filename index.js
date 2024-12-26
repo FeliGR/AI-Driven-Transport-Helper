@@ -1,29 +1,12 @@
-const CLASSES = ["crying_baby", "clock_alarm", "water_drops", "toilet_flush"];
-
+const CLASSES = ["suitcase", "alarm", "hit"];
 const YAMNET_MODEL_URL = "https://tfhub.dev/google/tfjs-model/yamnet/tfjs/1";
 const MODEL_SAMPLE_RATE = 16000;
 const NUM_SECONDS = 5;
-
 const worker = new Worker("worker.js", { type: "module" });
-
-let model;
-let yamnet;
-let audioContext;
-let stream;
-
-let isProcessing = false;
-let isRecording = false;
-let isSpeaking = false;
-let globalMessage = "";
-
 const alertQueue = [];
 const alertHistory = [];
 const MAX_HISTORY = 5;
-
 const timeDataQueue = [];
-
-let recorder = null;
-
 const btnMicStart = document.querySelector("#btnMicStart");
 const btnMicStop = document.querySelector("#btnMicStop");
 const predictionClass = document.querySelector("#predictionClass");
@@ -31,6 +14,21 @@ const outputMessageEl = document.getElementById("outputMessage");
 const outputMessageEl1 = document.getElementById("outputMessage1");
 const outputMessageEl2 = document.getElementById("outputMessage2");
 const alertHistoryEl = document.getElementById("alertHistory");
+const STATUS_MESSAGES = {
+  READY: "Ready to detect sounds...",
+  RECORDING: "Actively monitoring for sounds...",
+  STOPPED: "Recording stopped. Press Start to begin monitoring.",
+};
+
+let model;
+let yamnet;
+let audioContext;
+let stream;
+let isProcessing = false;
+let isRecording = false;
+let isSpeaking = false;
+let globalMessage = "";
+let recorder = null;
 
 worker.onmessage = async (e) => {
   switch (e.data.type) {
@@ -85,7 +83,9 @@ worker.onmessage = async (e) => {
       }
 
       isProcessing = false;
-      predictionClass.textContent = "Waiting for input...";
+      predictionClass.textContent = isRecording
+        ? STATUS_MESSAGES.RECORDING
+        : STATUS_MESSAGES.STOPPED;
       outputMessageEl.textContent = "";
       globalMessage = "";
 
@@ -130,7 +130,7 @@ btnMicStart.onclick = async () => {
     btnMicStart.disabled = true;
     btnMicStop.disabled = false;
 
-    predictionClass.textContent = "Listening...";
+    predictionClass.textContent = STATUS_MESSAGES.RECORDING;
     outputMessageEl.textContent = "";
 
     console.log("Recording started");
@@ -139,7 +139,6 @@ btnMicStart.onclick = async () => {
     stopRecording();
   }
 };
-
 btnMicStop.onclick = () => {
   stopRecording();
 };
@@ -220,11 +219,9 @@ async function getAudioStream(audioTrackConstraints) {
 
 function generatePrompt(prediction, location = "Car 4", urgency = "Moderate") {
   const eventDescriptions = {
-    crying_baby: "A baby crying sound was detected",
-    clock_alarm: "An alarm sound was detected",
-    toilet_flush: "A toilet flush sound was detected",
-    water_drops: "A water dripping sound was detected",
-    Equipaje: "A luggage moving sound was detected",
+    suitcase: "A suitcase-related sound was detected",
+    alarm: "An alarm sound was detected",
+    hit: "A hit sound was detected",
   };
 
   const description =
@@ -335,7 +332,7 @@ function stopRecording() {
     }
 
     btnMicStop.disabled = true;
-    predictionClass.textContent = "Stopped";
+    predictionClass.textContent = STATUS_MESSAGES.STOPPED;
 
     console.log("Recording stopped completely");
   } catch (error) {
@@ -452,6 +449,7 @@ async function main() {
     console.log("Modelo de clasificación cargado");
 
     worker.postMessage({ type: "load" });
+    predictionClass.textContent = STATUS_MESSAGES.READY;
   } catch (error) {
     console.error("Error en la inicialización del flujo principal:", error);
   }
